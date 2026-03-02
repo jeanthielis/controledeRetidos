@@ -382,16 +382,13 @@ if file_prod and file_ret:
     tab1, tab2, tab3 = st.tabs(["📊 Resultados Consolidados", "🔍 Análise por Motivo", "💾 Dados Brutos"])
 
     with tab1:
-        st.markdown("<h2 style='text-align: center;'>📈 Dashboard de Performance (Visão por Grupo)</h2>", unsafe_allow_html=True)
-        st.markdown("---")
-
         if grupos_unicos:
             for idx, grupo in enumerate(grupos_unicos):
                 # QUEBRA DE PÁGINA (Aplica a partir do 2º grupo na hora de imprimir)
                 if idx > 0:
                     st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
                 
-                st.markdown(f"<h3 style='color: #2E86C1;'>🏭 Grupo/Fábrica: {grupo}</h3>", unsafe_allow_html=True)
+                st.markdown(f"<h3 style='color: #2E86C1;'>🏭 Escolha: {grupo}</h3>", unsafe_allow_html=True)
 
                 df_g = df_tabela_final[df_tabela_final['Grupo_Relatorio'] == grupo]
                 df_m = df_ret_filtrado[df_ret_filtrado['Grupo_Relatorio'] == grupo]
