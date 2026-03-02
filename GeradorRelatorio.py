@@ -17,12 +17,10 @@ st.markdown("""
                 size: landscape; 
                 margin: 0.5cm; 
             }
-            /* Classe que força a quebra de página */
             .pagebreak { 
                 page-break-before: always; 
                 break-before: page;
             }
-            /* Esconde menus e botões na impressão */
             [data-testid="stSidebar"], header, footer, [data-testid="stToolbar"], .stAppHeader, .stDeployButton { 
                 display: none !important; 
             }
@@ -30,7 +28,6 @@ st.markdown("""
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
-            /* Tira espaçamentos desnecessários para caber na folha */
             .main .block-container { 
                 max-width: 100% !important; 
                 width: 100% !important; 
@@ -72,7 +69,6 @@ def truncar_duas_casas(valor):
     return math.floor(valor * 100) / 100
 
 def carregar_arquivo_sem_cabecalho(uploaded_file):
-    """Carrega o arquivo ignorando nomes originais. Usa Calamine para planilhas sujas do ERP."""
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.lower().endswith('.csv'):
@@ -109,7 +105,7 @@ def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
     df_final = df_final.sort_values(by=['Ordem', 'Equipe'])
     return df_final
 
-def criar_tabela_grafica(df, meta_pct, altura=220):
+def criar_tabela_grafica(df, meta_pct, altura=260):
     if df.empty: return None
     cor_texto_pct = ['#E74C3C' if v > meta_pct else '#27AE60' for v in df['% Realizado']]
     cor_texto_saldo = ['#E74C3C' if v < 0 else '#27AE60' for v in df['Saldo_M2']]
@@ -126,7 +122,7 @@ def criar_tabela_grafica(df, meta_pct, altura=220):
                    fill_color='#F7F9F9', align='center',
                    font=dict(color=['black', 'black', 'black', 'black', 'black', cor_texto_saldo, cor_texto_pct], size=10),
                    height=25))])
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=altura)
+    fig.update_layout(margin=dict(l=0, r=0, t=10, b=0), height=altura)
     return fig
 
 def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
@@ -156,8 +152,9 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     df_final['Label_X'] = df_final['Equipe'].astype(str)
     
     fig = go.Figure()
+    # Mudança para textposition='auto' para não cortar
     fig.add_trace(go.Bar(x=df_final['Label_X'], y=df_final['M2_Retido'], marker_color=df_final['Cor_Barra'],
-                         text=[f"{v:,.2f}" for v in df_final['M2_Retido']], textposition='inside', name='Realizado'))
+                         text=[f"{v:,.2f}" for v in df_final['M2_Retido']], textposition='auto', name='Realizado'))
     
     fig.add_trace(go.Scatter(
         x=df_final['Label_X'], 
@@ -171,8 +168,9 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
         name='Meta M²'
     ))
     
+    # Aumentado o multiplicador de 1.3 para 1.4 para dar mais folga no topo do gráfico
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
-    fig.update_layout(title=f"Perda em M²", yaxis=dict(range=[0, max_val * 1.3]), template=TEMPLATE_GRAFICO, showlegend=False)
+    fig.update_layout(title=f"Perda em M²", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
     return fig
 
 # --- BARRA LATERAL ---
@@ -195,9 +193,6 @@ if file_prod and file_ret:
     if df_prod_raw is None or df_ret_raw is None:
         st.stop()
 
-    # =========================================================================
-    # ⚙️ CONFIGURAÇÃO DOS ÍNDICES DAS COLUNAS
-    # =========================================================================
     IDX_PROD_DATA = 0      
     IDX_PROD_FORNO = 1     
     IDX_PROD_EQUIPE = 2    
@@ -208,7 +203,6 @@ if file_prod and file_ret:
     IDX_RET_FORNO = 2      
     IDX_RET_EQUIPE = 3     
     IDX_RET_M2 = 8         
-    # =========================================================================
 
     try:
         df_prod = pd.DataFrame()
@@ -242,7 +236,6 @@ if file_prod and file_ret:
         st.error("Erro: O arquivo de Retidos não possui as colunas mapeadas.")
         st.stop()
 
-    # Tratamento Inicial de Dados
     df_prod['metragem_real'] = df_prod[col_metragem].apply(limpar_numero)
     df_prod['data_obj'] = pd.to_datetime(df_prod[col_data_p], dayfirst=True, errors='coerce')
     df_prod['mes_ano'] = df_prod['data_obj'].dt.strftime('%Y-%m').fillna('Sem Data')
@@ -251,7 +244,6 @@ if file_prod and file_ret:
     df_ret['data_obj'] = pd.to_datetime(df_ret[col_data_r], dayfirst=True, errors='coerce')
     df_ret['mes_ano'] = df_ret['data_obj'].dt.strftime('%Y-%m').fillna('Sem Data')
 
-    # --- FUNCIONALIDADE: MAPEAMENTO DE FORNOS ---
     st.sidebar.markdown("---")
     with st.sidebar.expander("🛠️ Configuração de Linhas/Fornos", expanded=True):
         st.write("Determine qual Forno pertence a qual Linha.")
@@ -263,19 +255,13 @@ if file_prod and file_ret:
         if 'mapa_fornos_df' not in st.session_state:
             st.session_state.mapa_fornos_df = pd.DataFrame({'Código no Arquivo': todos_fornos, 'Nome da Linha (Edite aqui)': todos_fornos})
 
-        st.caption("Edite a coluna da direita para agrupar os fornos:")
         editor_df = st.data_editor(
-            st.session_state.mapa_fornos_df, 
-            hide_index=True, 
-            column_config={
-                "Código no Arquivo": st.column_config.TextColumn(disabled=True),
-                "Nome da Linha (Edite aqui)": st.column_config.TextColumn(required=True)
-            },
+            st.session_state.mapa_fornos_df, hide_index=True, 
+            column_config={"Código no Arquivo": st.column_config.TextColumn(disabled=True), "Nome da Linha (Edite aqui)": st.column_config.TextColumn(required=True)},
             key='editor_fornos'
         )
         mapa_de_para_linhas = dict(zip(editor_df['Código no Arquivo'], editor_df['Nome da Linha (Edite aqui)']))
 
-        # --- FUNCIONALIDADE: AGRUPAMENTO DE LINHAS ---
         st.markdown("---")
         st.write("Agrupar Linhas em Relatórios:")
         linhas_criadas = sorted(list(set(mapa_de_para_linhas.values())))
@@ -311,7 +297,6 @@ if file_prod and file_ret:
     df_prod['Grupo_Relatorio'] = df_prod['Linha_Nome'].apply(definir_grupo_relatorio)
     df_ret['Grupo_Relatorio'] = df_ret['Linha_Nome'].apply(definir_grupo_relatorio)
 
-    # --- SIDEBAR: ANÁLISE ESPECÍFICA E FILTROS DE MOTIVO ---
     todos_motivos_brutos = sorted(df_ret[col_motivo].astype(str).unique())
     motivo_alvo = st.sidebar.selectbox("🔎 Escolha o Motivo:", ["(Selecione um motivo)"] + todos_motivos_brutos)
     
@@ -351,7 +336,6 @@ if file_prod and file_ret:
         return m
     df_ret_filtrado['Motivo_Analise'] = df_ret_filtrado[col_motivo].apply(definir_motivo_analise)
 
-    # --- CÁLCULOS KPI GERAL ---
     df_p_agg = df_prod.rename(columns={col_equipe_p: 'Equipe'})
     df_r_agg = df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'})
 
@@ -376,15 +360,11 @@ if file_prod and file_ret:
             
     df_tabela_final = pd.concat(df_tabela_consolidadas, ignore_index=True) if df_tabela_consolidadas else pd.DataFrame()
 
-    # =========================================================================
-    # --- DASHBOARD: ABAS ---
-    # =========================================================================
     tab1, tab2, tab3 = st.tabs(["📊 Resultados Consolidados", "🔍 Análise por Motivo", "💾 Dados Brutos"])
 
     with tab1:
         if grupos_unicos:
             for idx, grupo in enumerate(grupos_unicos):
-                # QUEBRA DE PÁGINA (Aplica a partir do 2º grupo na hora de imprimir)
                 if idx > 0:
                     st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
                 
@@ -393,8 +373,8 @@ if file_prod and file_ret:
                 df_g = df_tabela_final[df_tabela_final['Grupo_Relatorio'] == grupo]
                 df_m = df_ret_filtrado[df_ret_filtrado['Grupo_Relatorio'] == grupo]
 
-                # --- LINHA 1 (Paisagem): Métrica | Gráfico % | Gráfico M2 ---
-                c1, c2, c3 = st.columns([1.2, 2.4, 2.4])
+                # Modificado as proporções da coluna para dar mais espaço (1.0, 2.5, 2.5)
+                c1, c2, c3 = st.columns([1.0, 2.5, 2.5])
 
                 with c1:
                     st.markdown("**Indicador Geral**")
@@ -409,13 +389,14 @@ if file_prod and file_ret:
                 with c2:
                     mapa_cores = {'Dentro da Meta (Verde)': '#27AE60', 'Fora da Meta (Vermelho)': '#E74C3C'}
                     if not df_g.empty:
+                        # Mudança para textposition='auto' e altura=260
                         fig_pct = go.Figure(go.Bar(x=df_g['Equipe'], y=df_g['% Realizado'],
                                                 marker_color=[mapa_cores.get(s, '#333') for s in df_g['Status']],
-                                                text=[f"{v:.2f}" for v in df_g['% Realizado']], textposition='inside'))
+                                                text=[f"{v:.2f}" for v in df_g['% Realizado']], textposition='auto'))
                         fig_pct.add_hline(y=META_PCT, line_dash="dot",
                                       annotation_text=f"Meta: {META_PCT}%",
                                       annotation_position="top right", annotation_font_color="black")
-                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=0, r=0, t=30, b=0), height=230)
+                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=20, t=40, b=20), height=260)
                         st.plotly_chart(fig_pct, use_container_width=True)
 
                 with c3:
@@ -424,33 +405,33 @@ if file_prod and file_ret:
                                                                   df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}),
                                                                   grupo, META_PCT)
                         if fig_m2:
-                            fig_m2.update_layout(margin=dict(l=0, r=0, t=30, b=0), height=230)
+                            # Aumento da margem superior para acomodar números da meta (t=40)
+                            fig_m2.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=260)
                             st.plotly_chart(fig_m2, use_container_width=True)
 
-                st.write("") # Pequeno respiro
+                st.write("") 
 
-                # --- LINHA 2 (Paisagem): Top Causas | Tabela ---
-                c4, c5 = st.columns([2, 4])
+                # Alterado a proporção para 2.5 e 3.5 para o gráfico de top motivos caber melhor com a tabela
+                c4, c5 = st.columns([2.5, 3.5])
 
                 with c4:
                     st.markdown("**Top 5 Defeitos**")
                     if not df_m.empty:
                         top = df_m.groupby('Motivo_Analise')['m2_real'].sum().sort_values(ascending=False).head(5).reset_index()
                         fig_top = px.bar(top, y='Motivo_Analise', x='m2_real', orientation='h', text_auto='.2f', template=TEMPLATE_GRAFICO)
-                        fig_top.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=220)
+                        fig_top.update_layout(margin=dict(l=10, r=30, t=10, b=20), height=260)
                         fig_top.update_yaxes(title="")
                         fig_top.update_xaxes(title="")
                         st.plotly_chart(fig_top, use_container_width=True)
 
                 with c5:
                     if not df_g.empty:
-                        fig_tabela = criar_tabela_grafica(df_g, META_PCT, altura=220)
+                        fig_tabela = criar_tabela_grafica(df_g, META_PCT, altura=260)
                         if fig_tabela:
                             st.plotly_chart(fig_tabela, use_container_width=True)
 
                 st.markdown("---")
 
-            # --- ÚLTIMA PÁGINA: Logs ---
             st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
             st.subheader("📝 Resumo das Configurações do Sistema")
             c_log1, c_log2, c_log3 = st.columns(3)
