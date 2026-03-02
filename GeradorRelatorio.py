@@ -168,12 +168,10 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     ))
     
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
-    # Alterado para 'Perda (m²)' para evitar o bug visual do $M^2$
     fig.update_layout(title=f"Perda (m²)", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
     
-    # Isso impede que a barra da 'Média Geral' seja cortada na ponta direita
-    fig.update_xaxes(cliponaxis=False)
-    fig.update_yaxes(cliponaxis=False)
+    # CORREÇÃO AQUI: update_traces ao invés de update_xaxes
+    fig.update_traces(cliponaxis=False)
     
     return fig
 
@@ -399,12 +397,10 @@ if file_prod and file_ret:
                                       annotation_text=f"Meta: {META_PCT}%",
                                       annotation_position="top right", annotation_font_color="black")
                         
-                        # Aumentado o `r=50` (margem direita) para a última barra não ser fatiada
                         fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=50, t=40, b=20), height=260)
                         
-                        # Impede que o texto/barra seja cortado caso encoste nas bordas
-                        fig_pct.update_xaxes(cliponaxis=False)
-                        fig_pct.update_yaxes(cliponaxis=False)
+                        # CORREÇÃO AQUI: update_traces ao invés de update_xaxes/yaxes
+                        fig_pct.update_traces(cliponaxis=False)
                         
                         st.plotly_chart(fig_pct, use_container_width=True)
 
@@ -414,7 +410,6 @@ if file_prod and file_ret:
                                                                   df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}),
                                                                   grupo, META_PCT)
                         if fig_m2:
-                            # Aumentado o `r=50` também aqui
                             fig_m2.update_layout(margin=dict(l=20, r=50, t=40, b=20), height=260)
                             st.plotly_chart(fig_m2, use_container_width=True)
 
