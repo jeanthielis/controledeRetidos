@@ -170,7 +170,6 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
     fig.update_layout(title=f"Perda (m²)", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
     
-    # Removemos a trava range=[...] e deixamos apenas o cliponaxis para não cortar o texto
     fig.update_traces(cliponaxis=False)
     
     return fig
@@ -367,6 +366,7 @@ if file_prod and file_ret:
     with tab1:
         if grupos_unicos:
             for idx, grupo in enumerate(grupos_unicos):
+                # Quebra de página para o Início do Grupo
                 if idx > 0:
                     st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
                 
@@ -399,8 +399,6 @@ if file_prod and file_ret:
                         
                         fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=120, t=40, b=20), height=260)
                         fig_pct.update_traces(cliponaxis=False)
-                        
-                        # REMOVIDA AS TRAVAS DE RANGE MATEMÁTICO QUE ENCURTAVAM O GRÁFICO
                         
                         st.plotly_chart(fig_pct, use_container_width=True)
 
@@ -435,6 +433,46 @@ if file_prod and file_ret:
 
                 st.markdown("---")
 
+                # ==========================================
+                # NOVO RELATÓRIO: MOTIVOS ASSOCIADOS À EQUIPE
+                # ==========================================
+                # Quebra de página para garantir que o detalhamento saia em uma folha limpa
+                st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
+                st.markdown(f"<h3 style='color: #2E86C1;'>🏭 Raio-X de Defeitos por Equipe: {grupo}</h3>", unsafe_allow_html=True)
+
+                df_equipe_motivo = df_m.groupby(['Equipe', 'Motivo_Analise'])['m2_real'].sum().reset_index()
+                
+                if not df_equipe_motivo.empty:
+                    c6, c7 = st.columns([3, 2.5])
+                    
+                    with c6:
+                        # Gráfico Empilhado demonstrando a composição dos defeitos de cada equipe
+                        fig_eq_mot = px.bar(df_equipe_motivo, x='Equipe', y='m2_real', color='Motivo_Analise',
+                                            text_auto='.2f', template=TEMPLATE_GRAFICO)
+                        fig_eq_mot.update_layout(
+                            title="Composição de Perdas por Equipe (m²)",
+                            barmode='stack', 
+                            margin=dict(l=20, r=20, t=40, b=20), 
+                            height=350,
+                            legend=dict(title="Motivos", orientation="v", yanchor="top", y=1, xanchor="left", x=1.0)
+                        )
+                        st.plotly_chart(fig_eq_mot, use_container_width=True)
+                        
+                    with c7:
+                        # Tabela Cruzada para visualizar os valores exatos de cruzamento
+                        st.markdown("**Matriz: Motivo x Equipe (m²)**")
+                        pivot_df = df_m.pivot_table(index='Motivo_Analise', columns='Equipe', values='m2_real', aggfunc='sum', fill_value=0)
+                        pivot_df['Total'] = pivot_df.sum(axis=1)
+                        pivot_df = pivot_df.sort_values(by='Total', ascending=False)
+                        pivot_df.loc['Total Geral'] = pivot_df.sum(axis=0)
+                        
+                        st.dataframe(pivot_df.style.format("{:,.2f}"), use_container_width=True, height=350)
+                else:
+                    st.info("Nenhum dado de retido para detalhar neste grupo.")
+
+                st.markdown("---")
+
+            # --- PÁGINA FINAL DOS RESUMOS DE CONFIGURAÇÃO ---
             st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
             st.subheader("📝 Resumo das Configurações do Sistema")
             c_log1, c_log2, c_log3 = st.columns(3)
