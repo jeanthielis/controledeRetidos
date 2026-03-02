@@ -67,26 +67,19 @@ def truncar_duas_casas(valor):
         return 0.0
     return math.floor(valor * 100) / 100
 def carregar_arquivo_sem_cabecalho(uploaded_file):
-    """Carrega o arquivo ignorando os nomes originais (lê direto pelos dados)"""
     try:
-        # Força o ponteiro do arquivo voltar para o início
-        uploaded_file.seek(0) 
-        
+        uploaded_file.seek(0)
         if uploaded_file.name.lower().endswith('.csv'):
-            try: 
-                return pd.read_csv(uploaded_file, header=None, sep=None, engine='python')
-            except Exception as e_csv1:
+            try: return pd.read_csv(uploaded_file, header=None, sep=None, engine='python')
+            except:
                 uploaded_file.seek(0)
                 return pd.read_csv(uploaded_file, header=None, sep=';', engine='python')
         else: 
-            # Tenta ler como Excel
-            return pd.read_excel(uploaded_file, header=None)
-            
+            # --- A MÁGICA ACONTECE AQUI: engine='calamine' ---
+            return pd.read_excel(uploaded_file, header=None, engine='calamine')
     except Exception as e: 
-        # AGORA ELE VAI MOSTRAR O ERRO REAL NA SUA TELA
-        st.error(f"Erro detalhado ao tentar ler o arquivo '{uploaded_file.name}': {e}")
+        st.error(f"Erro detalhado ao ler '{uploaded_file.name}': {e}")
         return None
-
 # --- FUNÇÕES DE CÁLCULO E GRÁFICO ---
 def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
     df_filt = df_original[df_original['Grupo_Relatorio'] == nome_grupo].copy()
