@@ -170,8 +170,11 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
     fig.update_layout(title=f"Perda (m²)", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
     
-    # CORREÇÃO AQUI: update_traces ao invés de update_xaxes
     fig.update_traces(cliponaxis=False)
+    
+    # Dá um respiro extra de 0.2 na direita do eixo X para a barra não encostar na borda
+    num_barras = len(df_final['Label_X'])
+    fig.update_xaxes(range=[-0.5, num_barras - 0.5 + 0.3])
     
     return fig
 
@@ -397,10 +400,13 @@ if file_prod and file_ret:
                                       annotation_text=f"Meta: {META_PCT}%",
                                       annotation_position="top right", annotation_font_color="black")
                         
-                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=50, t=40, b=20), height=260)
-                        
-                        # CORREÇÃO AQUI: update_traces ao invés de update_xaxes/yaxes
+                        # AUMENTO PARA r=120 e L=20
+                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=120, t=40, b=20), height=260)
                         fig_pct.update_traces(cliponaxis=False)
+                        
+                        # DÁ ESPAÇO EXTRA NO EIXO X PARA NÃO CORTAR A ÚLTIMA BARRA
+                        num_barras_pct = len(df_g['Equipe'])
+                        fig_pct.update_xaxes(range=[-0.5, num_barras_pct - 0.5 + 0.3])
                         
                         st.plotly_chart(fig_pct, use_container_width=True)
 
@@ -410,7 +416,8 @@ if file_prod and file_ret:
                                                                   df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}),
                                                                   grupo, META_PCT)
                         if fig_m2:
-                            fig_m2.update_layout(margin=dict(l=20, r=50, t=40, b=20), height=260)
+                            # AUMENTO PARA r=120 e L=20
+                            fig_m2.update_layout(margin=dict(l=20, r=120, t=40, b=20), height=260)
                             st.plotly_chart(fig_m2, use_container_width=True)
 
                 st.write("") 
