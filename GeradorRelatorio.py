@@ -1,4 +1,4 @@
-import math  # <--- Adicione esta importação no topo
+import math
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -9,7 +9,7 @@ from io import BytesIO
 st.set_page_config(page_title="Gestão de Produção & Qualidade", layout="wide")
 TEMPLATE_GRAFICO = "plotly_white"
 
-# --- CSS PARA IMPRESSÃO (RETRATO) ---
+# --- CSS PARA IMPRESSÃO (AJUSTADO PARA NÃO CORTAR) ---
 st.markdown("""
     <style>
         @media print {
@@ -17,31 +17,28 @@ st.markdown("""
                 size: portrait; 
                 margin: 0.5cm; 
             }
+            /* Esconde menus e botões na impressão */
             [data-testid="stSidebar"], header, footer, [data-testid="stToolbar"], .stAppHeader, .stDeployButton { 
                 display: none !important; 
             }
             body { 
-                zoom: 55%; 
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
-            .stApp { 
-                position: absolute; 
-                top: 0; 
-                left: 0; 
-                width: 100%; 
-                height: auto !important; 
-                overflow: visible !important; 
-            }
+            /* Força a largura máxima para não cortar conteúdo */
             .main .block-container { 
                 max-width: 100% !important; 
                 width: 100% !important; 
-                padding: 10px !important; 
-                overflow: visible !important; 
+                padding: 0 !important; 
             }
+            /* Ajusta gráficos e tabelas */
             .js-plotly-plot { 
-                max-width: 100% !important; 
-                page-break-inside: avoid;
+                width: 100% !important; 
+                page-break-inside: avoid !important;
+            }
+            .stDataFrame, .stTable {
+                width: 100% !important;
+                page-break-inside: avoid !important;
             }
         }
     </style>
@@ -68,31 +65,21 @@ def convert_df_to_excel(df):
 def truncar_duas_casas(valor):
     if pd.isna(valor) or valor == float('inf') or valor == float('-inf'):
         return 0.0
-    # Multiplica por 100, corta as casas decimais (floor) e divide por 100
     return math.floor(valor * 100) / 100
 
-def identificar_coluna(df, keywords, nome_padrao_exibicao):
-    colunas_df = [c.lower().strip() for c in df.columns]
-    mapa_cols = {c.lower().strip(): c for c in df.columns} 
-    for kw in keywords:
-        for col in colunas_df:
-            if kw in col:
-                return mapa_cols[col]
-    return None
-
-def carregar_arquivo(uploaded_file):
+def carregar_arquivo_sem_cabecalho(uploaded_file):
+    """Carrega o arquivo ignorando os nomes originais (lê direto pelos dados)"""
     try:
         if uploaded_file.name.lower().endswith('.csv'):
-            try: return pd.read_csv(uploaded_file)
+            try: return pd.read_csv(uploaded_file, header=None, sep=None, engine='python')
             except:
                 uploaded_file.seek(0)
-                return pd.read_csv(uploaded_file, sep=';')
-        else: return pd.read_excel(uploaded_file)
+                return pd.read_csv(uploaded_file, header=None, sep=';', engine='python')
+        else: return pd.read_excel(uploaded_file, header=None)
     except Exception as e: return None
 
 # --- FUNÇÕES DE CÁLCULO E GRÁFICO ---
 def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
-    # Filtra pelo Grupo e cria cópia
     df_filt = df_original[df_original['Grupo_Relatorio'] == nome_grupo].copy()
     if df_filt.empty: return df_filt
 
@@ -100,7 +87,6 @@ def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
     total_ret = df_filt['M2_Retido'].sum()
     meta_m2_total = total_prod * (meta_pct / 100)
     saldo_total = meta_m2_total - total_ret
-    # Cálculo com truncamento (sem arredondar para cima)
     pct_calc = (total_ret / total_prod * 100) if total_prod > 0 else 0
     pct_geral = truncar_duas_casas(pct_calc)
     
@@ -141,7 +127,6 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     df_r = df_ret[df_ret['Grupo_Relatorio'] == nome_grupo].copy()
     if df_p.empty and df_r.empty: return None
     
-    # Agrupa por Mês/Equipe (Somando tudo dentro do grupo)
     p_eq = df_p.groupby(['mes_ano', 'Equipe'])['metragem_real'].sum().reset_index().rename(columns={'metragem_real': 'M2_Produzido'})
     r_eq = df_r.groupby(['mes_ano', 'Equipe'])['m2_real'].sum().reset_index().rename(columns={'m2_real': 'M2_Retido'})
     
@@ -161,15 +146,12 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     df_final['Ordem_Equipe'] = df_final['Equipe'].apply(lambda x: 1 if x == 'Média Geral' else 0)
     df_final = df_final.sort_values(by=['mes_ano', 'Ordem_Equipe', 'Equipe'])
     
-    # --- ALTERAÇÃO AQUI: Apenas o nome da equipe no Label_X ---
     df_final['Label_X'] = df_final['Equipe'].astype(str)
     
     fig = go.Figure()
-    # Barra Retido
     fig.add_trace(go.Bar(x=df_final['Label_X'], y=df_final['M2_Retido'], marker_color=df_final['Cor_Barra'],
                          text=[f"{v:,.2f}" for v in df_final['M2_Retido']], textposition='inside', name='Realizado'))
     
-    # Linha Meta com Texto (Preto)
     fig.add_trace(go.Scatter(
         x=df_final['Label_X'], 
         y=df_final['Meta_M2'], 
@@ -200,45 +182,76 @@ with st.sidebar:
 
 # --- LÓGICA PRINCIPAL ---
 if file_prod and file_ret:
-    # 1. Carregamento
-    df_prod = carregar_arquivo(file_prod)
-    df_ret = carregar_arquivo(file_ret)
+    # 1. Carregamento dos dados brutos (sem cabeçalho)
+    df_prod_raw = carregar_arquivo_sem_cabecalho(file_prod)
+    df_ret_raw = carregar_arquivo_sem_cabecalho(file_ret)
 
-    if df_prod is None or df_ret is None:
+    if df_prod_raw is None or df_ret_raw is None:
         st.error("Erro na leitura dos arquivos.")
         st.stop()
 
-    # 2. Identificação de Colunas
-    erros_mapeamento = []
-    # Prod
-    col_equipe_p = identificar_coluna(df_prod, ['equipe', 'team', 'turno'], 'Equipe')
-    col_forno_p = identificar_coluna(df_prod, ['forno', 'linha', 'maq'], 'Forno/Linha')
-    col_metragem = identificar_coluna(df_prod, ['metragem', 'm2', 'prod'], 'Metragem/Produção')
-    col_data_p = identificar_coluna(df_prod, ['data', 'date', 'dia'], 'Data') 
-    # Ret
-    col_motivo = identificar_coluna(df_ret, ['motivo', 'defeito', 'causa'], 'Motivo')
-    col_m2 = identificar_coluna(df_ret, ['m²', 'm2', 'metragem', 'quant'], 'M2 Retido')
-    col_equipe_r = identificar_coluna(df_ret, ['equipe', 'team', 'turno'], 'Equipe')
-    col_forno_r = identificar_coluna(df_ret, ['forno', 'linha', 'maq'], 'Forno/Linha')
-    col_data_r = identificar_coluna(df_ret, ['data', 'date', 'dia', 'hora'], 'Data')
+    # =========================================================================
+    # ⚙️ CONFIGURAÇÃO DOS ÍNDICES DAS COLUNAS (CONFORME SOLICITADO)
+    # =========================================================================
+    
+    # Arquivo de Produção (Colunas indicadas: 0, 1, 2, 6)
+    IDX_PROD_DATA = 0      # Coluna da Data
+    IDX_PROD_FORNO = 1     # Coluna do Forno
+    IDX_PROD_EQUIPE = 2    # Coluna da Equipe
+    IDX_PROD_METRAGEM = 6  # Coluna da Metragem
 
-    cols_obrigatorias = [col_equipe_p, col_forno_p, col_metragem, col_motivo, col_m2, col_equipe_r, col_forno_r]
-    if any(c is None for c in cols_obrigatorias):
-        st.error("Colunas obrigatórias não encontradas. Verifique os nomes no Excel.")
+    # Arquivo de Retidos (Colunas indicadas: 0, 1, 2, 3, 8)
+    IDX_RET_MOTIVO = 0     # Coluna do Motivo/Defeito
+    IDX_RET_DATA = 1       # Coluna da Data
+    IDX_RET_FORNO = 2      # Coluna do Forno/Linha
+    IDX_RET_EQUIPE = 3     # Coluna da Equipe
+    IDX_RET_M2 = 8         # Coluna do M2 Retido
+    # =========================================================================
+
+    try:
+        # Monta o DataFrame de Produção usando as posições
+        df_prod = pd.DataFrame()
+        df_prod['Metragem/Produção'] = df_prod_raw.iloc[:, IDX_PROD_METRAGEM]
+        df_prod['Equipe'] = df_prod_raw.iloc[:, IDX_PROD_EQUIPE]
+        df_prod['Forno/Linha'] = df_prod_raw.iloc[:, IDX_PROD_FORNO]
+        df_prod['Data'] = df_prod_raw.iloc[:, IDX_PROD_DATA]
+        
+        # Define os nomes para uso no restante do código
+        col_metragem = 'Metragem/Produção'
+        col_equipe_p = 'Equipe'
+        col_forno_p = 'Forno/Linha'
+        col_data_p = 'Data'
+    except IndexError:
+        st.error(f"Erro: O arquivo de Produção não possui colunas suficientes. Verifique se o arquivo tem até a coluna {max(IDX_PROD_METRAGEM, IDX_PROD_EQUIPE, IDX_PROD_FORNO, IDX_PROD_DATA)}.")
         st.stop()
 
-    # Tratamento Inicial
+    try:
+        # Monta o DataFrame de Retidos usando as posições
+        df_ret = pd.DataFrame()
+        df_ret['Data'] = df_ret_raw.iloc[:, IDX_RET_DATA]
+        df_ret['Equipe'] = df_ret_raw.iloc[:, IDX_RET_EQUIPE]
+        df_ret['Forno/Linha'] = df_ret_raw.iloc[:, IDX_RET_FORNO]
+        df_ret['Motivo'] = df_ret_raw.iloc[:, IDX_RET_MOTIVO]
+        df_ret['M2 Retido'] = df_ret_raw.iloc[:, IDX_RET_M2]
+
+        # Define os nomes para uso no restante do código
+        col_data_r = 'Data'
+        col_equipe_r = 'Equipe'
+        col_forno_r = 'Forno/Linha'
+        col_motivo = 'Motivo'
+        col_m2 = 'M2 Retido'
+    except IndexError:
+        st.error(f"Erro: O arquivo de Retidos não possui colunas suficientes. Verifique se o arquivo tem até a coluna {max(IDX_RET_DATA, IDX_RET_EQUIPE, IDX_RET_FORNO, IDX_RET_MOTIVO, IDX_RET_M2)}.")
+        st.stop()
+
+    # Tratamento Inicial de Dados
     df_prod['metragem_real'] = df_prod[col_metragem].apply(limpar_numero)
-    if col_data_p:
-        df_prod['data_obj'] = pd.to_datetime(df_prod[col_data_p], dayfirst=True, errors='coerce')
-        df_prod['mes_ano'] = df_prod['data_obj'].dt.strftime('%Y-%m')
-    else: df_prod['mes_ano'] = 'Sem Data'
+    df_prod['data_obj'] = pd.to_datetime(df_prod[col_data_p], dayfirst=True, errors='coerce')
+    df_prod['mes_ano'] = df_prod['data_obj'].dt.strftime('%Y-%m').fillna('Sem Data')
 
     df_ret['m2_real'] = df_ret[col_m2].apply(limpar_numero)
-    if col_data_r:
-        df_ret['data_obj'] = pd.to_datetime(df_ret[col_data_r], dayfirst=True, errors='coerce')
-        df_ret['mes_ano'] = df_ret['data_obj'].dt.strftime('%Y-%m')
-    else: df_ret['mes_ano'] = 'Sem Data'
+    df_ret['data_obj'] = pd.to_datetime(df_ret[col_data_r], dayfirst=True, errors='coerce')
+    df_ret['mes_ano'] = df_ret['data_obj'].dt.strftime('%Y-%m').fillna('Sem Data')
 
     # --- FUNCIONALIDADE: MAPEAMENTO DE FORNOS ---
     st.sidebar.markdown("---")
@@ -352,7 +365,6 @@ if file_prod and file_ret:
     df_p_agg = df_prod.rename(columns={col_equipe_p: 'Equipe'})
     df_r_agg = df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'})
 
-    # Agrupa por Grupo_Relatorio e Equipe (Soma tudo o que estiver dentro do grupo)
     prod_agg = df_p_agg.groupby(['Grupo_Relatorio', 'Equipe'])['metragem_real'].sum().reset_index().rename(columns={'metragem_real': 'M2_Produzido'})
     ret_agg = df_r_agg.groupby(['Grupo_Relatorio', 'Equipe'])['m2_real'].sum().reset_index().rename(columns={'m2_real': 'M2_Retido'})
     
@@ -360,7 +372,7 @@ if file_prod and file_ret:
     
     df_final['Meta_M2'] = df_final['M2_Produzido'] * (META_PCT / 100)
     df_final['Saldo_M2'] = df_final['Meta_M2'] - df_final['M2_Retido']
-# Calcula o percentual bruto e depois aplica o truncamento linha a linha
+
     pct_raw = (df_final['M2_Retido'] / df_final['M2_Produzido']) * 100
     df_final['% Realizado'] = pct_raw.apply(truncar_duas_casas)    
     grupos_unicos = sorted(df_final['Grupo_Relatorio'].unique())
@@ -406,7 +418,6 @@ if file_prod and file_ret:
                         fig = go.Figure(go.Bar(x=df_g['Equipe'], y=df_g['% Realizado'],
                                                 marker_color=[mapa_cores.get(s, '#333') for s in df_g['Status']],
                                                 text=[f"{v:.2f}" for v in df_g['% Realizado']], textposition='inside'))
-                        # AJUSTE: Cor do texto da meta (Preto)
                         fig.add_hline(y=META_PCT, line_dash="dot", 
                                       annotation_text=f"Meta: {META_PCT}%", 
                                       annotation_position="top right",
@@ -438,7 +449,6 @@ if file_prod and file_ret:
                         fig_top = px.bar(top, y='Motivo_Analise', x='m2_real', orientation='h', title=f"Top 10 - {grupo}", text_auto='.2f', template=TEMPLATE_GRAFICO)
                         st.plotly_chart(fig_top, use_container_width=True)
         
-        # --- AUDITORIA E DADOS DE CONFIGURAÇÃO (ABAIXO DO TOP 10) ---
         st.markdown("---")
         st.subheader("📝 Resumo das Configurações Aplicadas")
         
@@ -479,7 +489,6 @@ if file_prod and file_ret:
                 spec_final['Cor_M2'] = spec_final['M2_Retido'].apply(lambda x: '#27AE60' if x <= META_ABSOLUTA_M2 or not USAR_META_M2 else '#E74C3C')
                 fig = go.Figure(go.Bar(x=spec_final['Equipe'], y=spec_final['M2_Retido'], marker_color=spec_final['Cor_M2'], text=[f"{v:.2f}" for v in spec_final['M2_Retido']], textposition='auto'))
                 if USAR_META_M2: 
-                    # AJUSTE: Cor do texto da meta (Preto)
                     fig.add_hline(y=META_ABSOLUTA_M2, line_dash="dash", 
                                   annotation_text=f"Meta: {META_ABSOLUTA_M2}m²", 
                                   annotation_position="top right",
@@ -490,7 +499,6 @@ if file_prod and file_ret:
                 spec_final['Cor_Qtd'] = spec_final['Qtd_Ocorrencias'].apply(lambda x: '#27AE60' if x <= META_FREQ_QTD or not USAR_META_FREQ else '#E74C3C')
                 fig = go.Figure(go.Bar(x=spec_final['Equipe'], y=spec_final['Qtd_Ocorrencias'], marker_color=spec_final['Cor_Qtd'], text=spec_final['Qtd_Ocorrencias'], textposition='auto'))
                 if USAR_META_FREQ: 
-                    # AJUSTE: Cor do texto da meta (Preto)
                     fig.add_hline(y=META_FREQ_QTD, line_dash="dash", 
                                   annotation_text=f"Meta: {META_FREQ_QTD}", 
                                   annotation_position="top right",
@@ -509,4 +517,4 @@ if file_prod and file_ret:
         st.download_button("📥 Baixar Excel", data=convert_df_to_excel(df_tabela_final), file_name="relatorio_consolidado.xlsx")
 
 else:
-    st.info("Aguardando upload dos arquivos (Formatos aceitos: .xlsx, .csv). O nome do arquivo não importa.")
+    st.info("Aguardando upload dos arquivos (Formatos aceitos: .xlsx, .csv). O nome do arquivo não importa, o sistema lerá pelas posições configuradas.")
