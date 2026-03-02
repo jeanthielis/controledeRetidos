@@ -152,7 +152,6 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     df_final['Label_X'] = df_final['Equipe'].astype(str)
     
     fig = go.Figure()
-    # Mudança para textposition='auto' para não cortar
     fig.add_trace(go.Bar(x=df_final['Label_X'], y=df_final['M2_Retido'], marker_color=df_final['Cor_Barra'],
                          text=[f"{v:,.2f}" for v in df_final['M2_Retido']], textposition='auto', name='Realizado'))
     
@@ -168,9 +167,14 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
         name='Meta M²'
     ))
     
-    # Aumentado o multiplicador de 1.3 para 1.4 para dar mais folga no topo do gráfico
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
-    fig.update_layout(title=f"Perda em M²", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
+    # Alterado para 'Perda (m²)' para evitar o bug visual do $M^2$
+    fig.update_layout(title=f"Perda (m²)", yaxis=dict(range=[0, max_val * 1.4]), template=TEMPLATE_GRAFICO, showlegend=False)
+    
+    # Isso impede que a barra da 'Média Geral' seja cortada na ponta direita
+    fig.update_xaxes(cliponaxis=False)
+    fig.update_yaxes(cliponaxis=False)
+    
     return fig
 
 # --- BARRA LATERAL ---
@@ -373,7 +377,6 @@ if file_prod and file_ret:
                 df_g = df_tabela_final[df_tabela_final['Grupo_Relatorio'] == grupo]
                 df_m = df_ret_filtrado[df_ret_filtrado['Grupo_Relatorio'] == grupo]
 
-                # Modificado as proporções da coluna para dar mais espaço (1.0, 2.5, 2.5)
                 c1, c2, c3 = st.columns([1.0, 2.5, 2.5])
 
                 with c1:
@@ -389,14 +392,20 @@ if file_prod and file_ret:
                 with c2:
                     mapa_cores = {'Dentro da Meta (Verde)': '#27AE60', 'Fora da Meta (Vermelho)': '#E74C3C'}
                     if not df_g.empty:
-                        # Mudança para textposition='auto' e altura=260
                         fig_pct = go.Figure(go.Bar(x=df_g['Equipe'], y=df_g['% Realizado'],
                                                 marker_color=[mapa_cores.get(s, '#333') for s in df_g['Status']],
                                                 text=[f"{v:.2f}" for v in df_g['% Realizado']], textposition='auto'))
                         fig_pct.add_hline(y=META_PCT, line_dash="dot",
                                       annotation_text=f"Meta: {META_PCT}%",
                                       annotation_position="top right", annotation_font_color="black")
-                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=20, t=40, b=20), height=260)
+                        
+                        # Aumentado o `r=50` (margem direita) para a última barra não ser fatiada
+                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=20, r=50, t=40, b=20), height=260)
+                        
+                        # Impede que o texto/barra seja cortado caso encoste nas bordas
+                        fig_pct.update_xaxes(cliponaxis=False)
+                        fig_pct.update_yaxes(cliponaxis=False)
+                        
                         st.plotly_chart(fig_pct, use_container_width=True)
 
                 with c3:
@@ -405,13 +414,12 @@ if file_prod and file_ret:
                                                                   df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}),
                                                                   grupo, META_PCT)
                         if fig_m2:
-                            # Aumento da margem superior para acomodar números da meta (t=40)
-                            fig_m2.update_layout(margin=dict(l=20, r=20, t=40, b=20), height=260)
+                            # Aumentado o `r=50` também aqui
+                            fig_m2.update_layout(margin=dict(l=20, r=50, t=40, b=20), height=260)
                             st.plotly_chart(fig_m2, use_container_width=True)
 
                 st.write("") 
 
-                # Alterado a proporção para 2.5 e 3.5 para o gráfico de top motivos caber melhor com a tabela
                 c4, c5 = st.columns([2.5, 3.5])
 
                 with c4:
