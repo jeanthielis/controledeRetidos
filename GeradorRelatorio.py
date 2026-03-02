@@ -9,13 +9,18 @@ from io import BytesIO
 st.set_page_config(page_title="Gestão de Produção & Qualidade", layout="wide")
 TEMPLATE_GRAFICO = "plotly_white"
 
-# --- CSS PARA IMPRESSÃO (AJUSTADO PARA NÃO CORTAR) ---
+# --- CSS PARA IMPRESSÃO (PAISAGEM + QUEBRA DE PÁGINA) ---
 st.markdown("""
     <style>
         @media print {
             @page { 
-                size: portrait; 
+                size: landscape; 
                 margin: 0.5cm; 
+            }
+            /* Classe que força a quebra de página */
+            .pagebreak { 
+                page-break-before: always; 
+                break-before: page;
             }
             /* Esconde menus e botões na impressão */
             [data-testid="stSidebar"], header, footer, [data-testid="stToolbar"], .stAppHeader, .stDeployButton { 
@@ -25,13 +30,12 @@ st.markdown("""
                 -webkit-print-color-adjust: exact !important; 
                 print-color-adjust: exact !important; 
             }
-            /* Força a largura máxima para não cortar conteúdo */
+            /* Tira espaçamentos desnecessários para caber na folha */
             .main .block-container { 
                 max-width: 100% !important; 
                 width: 100% !important; 
-                padding: 0 !important; 
+                padding: 1rem 0 !important; 
             }
-            /* Ajusta gráficos e tabelas */
             .js-plotly-plot { 
                 width: 100% !important; 
                 page-break-inside: avoid !important;
@@ -66,7 +70,9 @@ def truncar_duas_casas(valor):
     if pd.isna(valor) or valor == float('inf') or valor == float('-inf'):
         return 0.0
     return math.floor(valor * 100) / 100
+
 def carregar_arquivo_sem_cabecalho(uploaded_file):
+    """Carrega o arquivo ignorando nomes originais. Usa Calamine para planilhas sujas do ERP."""
     try:
         uploaded_file.seek(0)
         if uploaded_file.name.lower().endswith('.csv'):
@@ -74,12 +80,11 @@ def carregar_arquivo_sem_cabecalho(uploaded_file):
             except:
                 uploaded_file.seek(0)
                 return pd.read_csv(uploaded_file, header=None, sep=';', engine='python')
-        else: 
-            # --- A MÁGICA ACONTECE AQUI: engine='calamine' ---
-            return pd.read_excel(uploaded_file, header=None, engine='calamine')
-    except Exception as e: 
+        else: return pd.read_excel(uploaded_file, header=None, engine='calamine')
+    except Exception as e:
         st.error(f"Erro detalhado ao ler '{uploaded_file.name}': {e}")
         return None
+
 # --- FUNÇÕES DE CÁLCULO E GRÁFICO ---
 def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
     df_filt = df_original[df_original['Grupo_Relatorio'] == nome_grupo].copy()
@@ -104,14 +109,14 @@ def adicionar_linha_geral(df_original, nome_grupo, meta_pct):
     df_final = df_final.sort_values(by=['Ordem', 'Equipe'])
     return df_final
 
-def criar_tabela_grafica(df, meta_pct):
+def criar_tabela_grafica(df, meta_pct, altura=220):
     if df.empty: return None
     cor_texto_pct = ['#E74C3C' if v > meta_pct else '#27AE60' for v in df['% Realizado']]
     cor_texto_saldo = ['#E74C3C' if v < 0 else '#27AE60' for v in df['Saldo_M2']]
     
     fig = go.Figure(data=[go.Table(
         header=dict(values=['<b>Grupo</b>', '<b>Equipe</b>', '<b>Produção</b>', '<b>Meta (m²)</b>', '<b>Retido (m²)</b>', '<b>Saldo</b>', '<b>% Perda</b>'],
-                    fill_color='#2E86C1', align='center', font=dict(color='white', size=12)),
+                    fill_color='#2E86C1', align='center', font=dict(color='white', size=11)),
         cells=dict(values=[df['Grupo_Relatorio'], df['Equipe'], 
                            [f"{v:,.2f}" for v in df['M2_Produzido']], 
                            [f"{v:,.2f}" for v in df['Meta_M2']], 
@@ -119,9 +124,9 @@ def criar_tabela_grafica(df, meta_pct):
                            [f"{v:,.2f}" for v in df['Saldo_M2']], 
                            [f"{v:.2f}%" for v in df['% Realizado']]],
                    fill_color='#F7F9F9', align='center',
-                   font=dict(color=['black', 'black', 'black', 'black', 'black', cor_texto_saldo, cor_texto_pct], size=11),
-                   height=30))])
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=400)
+                   font=dict(color=['black', 'black', 'black', 'black', 'black', cor_texto_saldo, cor_texto_pct], size=10),
+                   height=25))])
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=altura)
     return fig
 
 def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
@@ -167,7 +172,7 @@ def criar_grafico_evolucao_com_geral(df_prod, df_ret, nome_grupo, meta_pct):
     ))
     
     max_val = max(df_final['M2_Retido'].max(), df_final['Meta_M2'].max()) if not df_final.empty else 100
-    fig.update_layout(title=f"{nome_grupo}: M²", yaxis=dict(range=[0, max_val * 1.3]), template=TEMPLATE_GRAFICO, showlegend=True)
+    fig.update_layout(title=f"Perda em M²", yaxis=dict(range=[0, max_val * 1.3]), template=TEMPLATE_GRAFICO, showlegend=False)
     return fig
 
 # --- BARRA LATERAL ---
@@ -184,51 +189,43 @@ with st.sidebar:
 
 # --- LÓGICA PRINCIPAL ---
 if file_prod and file_ret:
-    # 1. Carregamento dos dados brutos (sem cabeçalho)
     df_prod_raw = carregar_arquivo_sem_cabecalho(file_prod)
     df_ret_raw = carregar_arquivo_sem_cabecalho(file_ret)
 
     if df_prod_raw is None or df_ret_raw is None:
-        st.error("Erro na leitura dos arquivos.")
         st.stop()
 
     # =========================================================================
-    # ⚙️ CONFIGURAÇÃO DOS ÍNDICES DAS COLUNAS (CONFORME SOLICITADO)
+    # ⚙️ CONFIGURAÇÃO DOS ÍNDICES DAS COLUNAS
     # =========================================================================
-    
-    # Arquivo de Produção (Colunas indicadas: 0, 1, 2, 6)
-    IDX_PROD_DATA = 0      # Coluna da Data
-    IDX_PROD_FORNO = 1     # Coluna do Forno
-    IDX_PROD_EQUIPE = 2    # Coluna da Equipe
-    IDX_PROD_METRAGEM = 6  # Coluna da Metragem
+    IDX_PROD_DATA = 0      
+    IDX_PROD_FORNO = 1     
+    IDX_PROD_EQUIPE = 2    
+    IDX_PROD_METRAGEM = 6  
 
-    # Arquivo de Retidos (Colunas indicadas: 0, 1, 2, 3, 8)
-    IDX_RET_MOTIVO = 0     # Coluna do Motivo/Defeito
-    IDX_RET_DATA = 1       # Coluna da Data
-    IDX_RET_FORNO = 2      # Coluna do Forno/Linha
-    IDX_RET_EQUIPE = 3     # Coluna da Equipe
-    IDX_RET_M2 = 8         # Coluna do M2 Retido
+    IDX_RET_MOTIVO = 0     
+    IDX_RET_DATA = 1       
+    IDX_RET_FORNO = 2      
+    IDX_RET_EQUIPE = 3     
+    IDX_RET_M2 = 8         
     # =========================================================================
 
     try:
-        # Monta o DataFrame de Produção usando as posições
         df_prod = pd.DataFrame()
         df_prod['Metragem/Produção'] = df_prod_raw.iloc[:, IDX_PROD_METRAGEM]
         df_prod['Equipe'] = df_prod_raw.iloc[:, IDX_PROD_EQUIPE]
         df_prod['Forno/Linha'] = df_prod_raw.iloc[:, IDX_PROD_FORNO]
         df_prod['Data'] = df_prod_raw.iloc[:, IDX_PROD_DATA]
         
-        # Define os nomes para uso no restante do código
         col_metragem = 'Metragem/Produção'
         col_equipe_p = 'Equipe'
         col_forno_p = 'Forno/Linha'
         col_data_p = 'Data'
     except IndexError:
-        st.error(f"Erro: O arquivo de Produção não possui colunas suficientes. Verifique se o arquivo tem até a coluna {max(IDX_PROD_METRAGEM, IDX_PROD_EQUIPE, IDX_PROD_FORNO, IDX_PROD_DATA)}.")
+        st.error("Erro: O arquivo de Produção não possui as colunas mapeadas.")
         st.stop()
 
     try:
-        # Monta o DataFrame de Retidos usando as posições
         df_ret = pd.DataFrame()
         df_ret['Data'] = df_ret_raw.iloc[:, IDX_RET_DATA]
         df_ret['Equipe'] = df_ret_raw.iloc[:, IDX_RET_EQUIPE]
@@ -236,14 +233,13 @@ if file_prod and file_ret:
         df_ret['Motivo'] = df_ret_raw.iloc[:, IDX_RET_MOTIVO]
         df_ret['M2 Retido'] = df_ret_raw.iloc[:, IDX_RET_M2]
 
-        # Define os nomes para uso no restante do código
         col_data_r = 'Data'
         col_equipe_r = 'Equipe'
         col_forno_r = 'Forno/Linha'
         col_motivo = 'Motivo'
         col_m2 = 'M2 Retido'
     except IndexError:
-        st.error(f"Erro: O arquivo de Retidos não possui colunas suficientes. Verifique se o arquivo tem até a coluna {max(IDX_RET_DATA, IDX_RET_EQUIPE, IDX_RET_FORNO, IDX_RET_MOTIVO, IDX_RET_M2)}.")
+        st.error("Erro: O arquivo de Retidos não possui as colunas mapeadas.")
         st.stop()
 
     # Tratamento Inicial de Dados
@@ -265,10 +261,7 @@ if file_prod and file_ret:
         todos_fornos = sorted(list(set([str(x) for x in fornos_prod + fornos_ret])))
 
         if 'mapa_fornos_df' not in st.session_state:
-            st.session_state.mapa_fornos_df = pd.DataFrame({
-                'Código no Arquivo': todos_fornos,
-                'Nome da Linha (Edite aqui)': todos_fornos
-            })
+            st.session_state.mapa_fornos_df = pd.DataFrame({'Código no Arquivo': todos_fornos, 'Nome da Linha (Edite aqui)': todos_fornos})
 
         st.caption("Edite a coluna da direita para agrupar os fornos:")
         editor_df = st.data_editor(
@@ -285,7 +278,6 @@ if file_prod and file_ret:
         # --- FUNCIONALIDADE: AGRUPAMENTO DE LINHAS ---
         st.markdown("---")
         st.write("Agrupar Linhas em Relatórios:")
-        
         linhas_criadas = sorted(list(set(mapa_de_para_linhas.values())))
         if 'grupos_linhas' not in st.session_state: st.session_state.grupos_linhas = {}
 
@@ -293,13 +285,12 @@ if file_prod and file_ret:
         novo_grupo_nome = col_add1.text_input("Nome do Grupo (ex: Fábrica 1)")
         linhas_selecionadas = col_add2.multiselect("Selecione as Linhas", linhas_criadas)
         
-        if st.button("➕ Criar Grupo de Linhas"):
+        if st.button("➕ Criar Grupo"):
             if novo_grupo_nome and linhas_selecionadas:
                 st.session_state.grupos_linhas[novo_grupo_nome] = linhas_selecionadas
                 st.rerun()
 
         if st.session_state.grupos_linhas:
-            st.write("**Grupos Atuais:**")
             to_remove = []
             for k, v in st.session_state.grupos_linhas.items():
                 c_del1, c_del2 = st.columns([0.8, 0.2])
@@ -309,14 +300,12 @@ if file_prod and file_ret:
                 del st.session_state.grupos_linhas[r]
                 st.rerun()
 
-    # --- APLICAÇÃO DO MAPEAMENTO ---
     df_prod['Linha_Nome'] = df_prod[col_forno_p].astype(str).map(mapa_de_para_linhas).fillna('Outros')
     df_ret['Linha_Nome'] = df_ret[col_forno_r].astype(str).map(mapa_de_para_linhas).fillna('Outros')
 
     def definir_grupo_relatorio(linha_nome):
         for nome_grupo, lista_linhas in st.session_state.grupos_linhas.items():
-            if linha_nome in lista_linhas:
-                return nome_grupo
+            if linha_nome in lista_linhas: return nome_grupo
         return linha_nome 
 
     df_prod['Grupo_Relatorio'] = df_prod['Linha_Nome'].apply(definir_grupo_relatorio)
@@ -351,7 +340,6 @@ if file_prod and file_ret:
     
     if st.session_state.grupos_motivos:
         remover_mot = []
-        st.sidebar.write("Grupos de Defeitos:")
         for g, l in st.session_state.grupos_motivos.items():
             if st.sidebar.button(f"Remover {g}", key=f"del_gm_{g}"): remover_mot.append(g)
         for r in remover_mot: del st.session_state.grupos_motivos[r]
@@ -388,92 +376,102 @@ if file_prod and file_ret:
             
     df_tabela_final = pd.concat(df_tabela_consolidadas, ignore_index=True) if df_tabela_consolidadas else pd.DataFrame()
 
-    # --- DASHBOARD ---
+    # =========================================================================
+    # --- DASHBOARD: ABAS ---
+    # =========================================================================
     tab1, tab2, tab3 = st.tabs(["📊 Resultados Consolidados", "🔍 Análise por Motivo", "💾 Dados Brutos"])
 
     with tab1:
-        st.subheader(f"📈 Indicadores Gerais (Meta de {META_PCT}%)")
-        
+        st.markdown("<h2 style='text-align: center;'>📈 Dashboard de Performance (Visão por Grupo)</h2>", unsafe_allow_html=True)
+        st.markdown("---")
+
         if grupos_unicos:
-            cols = st.columns(len(grupos_unicos))
             for idx, grupo in enumerate(grupos_unicos):
-                with cols[idx]:
-                    st.info(f"**{grupo}**")
-                    if not df_tabela_final.empty:
-                        row = df_tabela_final[(df_tabela_final['Grupo_Relatorio'] == grupo) & (df_tabela_final['Equipe'] == 'Média Geral')]
+                # QUEBRA DE PÁGINA (Aplica a partir do 2º grupo na hora de imprimir)
+                if idx > 0:
+                    st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
+                
+                st.markdown(f"<h3 style='color: #2E86C1;'>🏭 Grupo/Fábrica: {grupo}</h3>", unsafe_allow_html=True)
+
+                df_g = df_tabela_final[df_tabela_final['Grupo_Relatorio'] == grupo]
+                df_m = df_ret_filtrado[df_ret_filtrado['Grupo_Relatorio'] == grupo]
+
+                # --- LINHA 1 (Paisagem): Métrica | Gráfico % | Gráfico M2 ---
+                c1, c2, c3 = st.columns([1.2, 2.4, 2.4])
+
+                with c1:
+                    st.markdown("**Indicador Geral**")
+                    if not df_g.empty:
+                        row = df_g[df_g['Equipe'] == 'Média Geral']
                         if not row.empty:
                             val = row['% Realizado'].values[0]
-                            st.metric("Resultado", f"{val:.2f}%")
-                            if val <= META_PCT: st.markdown(":green[**Dentro da Meta**]")
-                            else: st.markdown(":red[**Fora da Meta**]")
-        
-            st.markdown("---")
-            st.subheader(f"📊 Performance por Equipe em %")
-            
-            cols_g = st.columns(len(grupos_unicos))
-            mapa_cores = {'Dentro da Meta (Verde)': '#27AE60', 'Fora da Meta (Vermelho)': '#E74C3C'}
-            
-            for idx, grupo in enumerate(grupos_unicos):
-                with cols_g[idx]:
-                    df_g = df_tabela_final[df_tabela_final['Grupo_Relatorio'] == grupo]
+                            st.metric(f"Meta: {META_PCT}%", f"{val:.2f}%")
+                            if val <= META_PCT: st.success("🟢 Dentro da Meta")
+                            else: st.error("🔴 Fora da Meta")
+
+                with c2:
+                    mapa_cores = {'Dentro da Meta (Verde)': '#27AE60', 'Fora da Meta (Vermelho)': '#E74C3C'}
                     if not df_g.empty:
-                        fig = go.Figure(go.Bar(x=df_g['Equipe'], y=df_g['% Realizado'],
+                        fig_pct = go.Figure(go.Bar(x=df_g['Equipe'], y=df_g['% Realizado'],
                                                 marker_color=[mapa_cores.get(s, '#333') for s in df_g['Status']],
                                                 text=[f"{v:.2f}" for v in df_g['% Realizado']], textposition='inside'))
-                        fig.add_hline(y=META_PCT, line_dash="dot", 
-                                      annotation_text=f"Meta: {META_PCT}%", 
-                                      annotation_position="top right",
-                                      annotation_font_color="black")
-                        fig.update_layout(title=f"{grupo}: % ", template=TEMPLATE_GRAFICO)
-                        st.plotly_chart(fig, use_container_width=True)
+                        fig_pct.add_hline(y=META_PCT, line_dash="dot",
+                                      annotation_text=f"Meta: {META_PCT}%",
+                                      annotation_position="top right", annotation_font_color="black")
+                        fig_pct.update_layout(title="Performance por Equipe (%)", template=TEMPLATE_GRAFICO, margin=dict(l=0, r=0, t=30, b=0), height=230)
+                        st.plotly_chart(fig_pct, use_container_width=True)
 
-            st.markdown("---")
-            st.subheader("📊 Performance por Equipe em M²")
-            if 'mes_ano' in df_p_agg.columns:
-                cols_t = st.columns(len(grupos_unicos))
-                for idx, grupo in enumerate(grupos_unicos):
-                    with cols_t[idx]:
-                        fig_t = criar_grafico_evolucao_com_geral(df_prod.rename(columns={col_equipe_p: 'Equipe'}), df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}), grupo, META_PCT)
-                        if fig_t: st.plotly_chart(fig_t, use_container_width=True)
-            
-            st.markdown("---")
-            fig_tabela = criar_tabela_grafica(df_tabela_final, META_PCT)
-            if fig_tabela: st.plotly_chart(fig_tabela, use_container_width=True)
+                with c3:
+                    if 'mes_ano' in df_p_agg.columns:
+                        fig_m2 = criar_grafico_evolucao_com_geral(df_prod.rename(columns={col_equipe_p: 'Equipe'}),
+                                                                  df_ret_filtrado.rename(columns={col_equipe_r: 'Equipe'}),
+                                                                  grupo, META_PCT)
+                        if fig_m2:
+                            fig_m2.update_layout(margin=dict(l=0, r=0, t=30, b=0), height=230)
+                            st.plotly_chart(fig_m2, use_container_width=True)
 
-            st.markdown("---")
-            st.subheader("🏆 Top Causas de Retenção")
-            cols_top = st.columns(len(grupos_unicos))
-            for idx, grupo in enumerate(grupos_unicos):
-                with cols_top[idx]:
-                    df_m = df_ret_filtrado[df_ret_filtrado['Grupo_Relatorio'] == grupo]
+                st.write("") # Pequeno respiro
+
+                # --- LINHA 2 (Paisagem): Top Causas | Tabela ---
+                c4, c5 = st.columns([2, 4])
+
+                with c4:
+                    st.markdown("**Top 5 Defeitos**")
                     if not df_m.empty:
-                        top = df_m.groupby('Motivo_Analise')['m2_real'].sum().sort_values(ascending=False).head(10).reset_index()
-                        fig_top = px.bar(top, y='Motivo_Analise', x='m2_real', orientation='h', title=f"Top 10 - {grupo}", text_auto='.2f', template=TEMPLATE_GRAFICO)
+                        top = df_m.groupby('Motivo_Analise')['m2_real'].sum().sort_values(ascending=False).head(5).reset_index()
+                        fig_top = px.bar(top, y='Motivo_Analise', x='m2_real', orientation='h', text_auto='.2f', template=TEMPLATE_GRAFICO)
+                        fig_top.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=220)
+                        fig_top.update_yaxes(title="")
+                        fig_top.update_xaxes(title="")
                         st.plotly_chart(fig_top, use_container_width=True)
-        
-        st.markdown("---")
-        st.subheader("📝 Resumo das Configurações Aplicadas")
-        
-        c_log1, c_log2, c_log3 = st.columns(3)
-        with c_log1:
-            st.markdown("**⛔ Motivos Excluídos:**")
-            if motivos_excluir:
-                for m in motivos_excluir: st.markdown(f"- {m}")
-            else: st.caption("Nenhum motivo excluído.")
-        
-        with c_log2:
-            st.markdown("**📦 Agrupamento de Defeitos:**")
-            if st.session_state.grupos_motivos:
-                for g, l in st.session_state.grupos_motivos.items():
-                    st.markdown(f"**{g}** contém: " + ", ".join(l))
-            else: st.caption("Nenhum agrupamento de defeitos.")
-            
-        with c_log3:
-            st.markdown("**🏭 Agrupamento de Linhas:**")
-            if st.session_state.grupos_linhas:
-                for g, l in st.session_state.grupos_linhas.items():
-                    st.markdown(f"**Relatório {g}** contém: " + ", ".join(l))
-            else: st.caption("Cada linha é um relatório individual.")
+
+                with c5:
+                    if not df_g.empty:
+                        fig_tabela = criar_tabela_grafica(df_g, META_PCT, altura=220)
+                        if fig_tabela:
+                            st.plotly_chart(fig_tabela, use_container_width=True)
+
+                st.markdown("---")
+
+            # --- ÚLTIMA PÁGINA: Logs ---
+            st.markdown('<div class="pagebreak"></div>', unsafe_allow_html=True)
+            st.subheader("📝 Resumo das Configurações do Sistema")
+            c_log1, c_log2, c_log3 = st.columns(3)
+            with c_log1:
+                st.markdown("**⛔ Motivos Excluídos:**")
+                if motivos_excluir:
+                    for m in motivos_excluir: st.markdown(f"- {m}")
+                else: st.caption("Nenhum.")
+            with c_log2:
+                st.markdown("**📦 Grupos de Defeitos:**")
+                if st.session_state.grupos_motivos:
+                    for g, l in st.session_state.grupos_motivos.items(): st.markdown(f"**{g}**: {', '.join(l)}")
+                else: st.caption("Nenhum.")
+            with c_log3:
+                st.markdown("**🏭 Agrupamento de Linhas:**")
+                if st.session_state.grupos_linhas:
+                    for g, l in st.session_state.grupos_linhas.items(): st.markdown(f"**{g}**: {', '.join(l)}")
+                else: st.caption("Automático.")
 
     with tab2:
         if motivo_alvo and motivo_alvo != "(Selecione um motivo)":
@@ -491,20 +489,14 @@ if file_prod and file_ret:
                 spec_final['Cor_M2'] = spec_final['M2_Retido'].apply(lambda x: '#27AE60' if x <= META_ABSOLUTA_M2 or not USAR_META_M2 else '#E74C3C')
                 fig = go.Figure(go.Bar(x=spec_final['Equipe'], y=spec_final['M2_Retido'], marker_color=spec_final['Cor_M2'], text=[f"{v:.2f}" for v in spec_final['M2_Retido']], textposition='auto'))
                 if USAR_META_M2: 
-                    fig.add_hline(y=META_ABSOLUTA_M2, line_dash="dash", 
-                                  annotation_text=f"Meta: {META_ABSOLUTA_M2}m²", 
-                                  annotation_position="top right",
-                                  annotation_font_color="black")
+                    fig.add_hline(y=META_ABSOLUTA_M2, line_dash="dash", annotation_text=f"Meta: {META_ABSOLUTA_M2}m²", annotation_position="top right", annotation_font_color="black")
                 fig.update_layout(title="Metragem por Equipe", template=TEMPLATE_GRAFICO)
                 st.plotly_chart(fig, use_container_width=True)
             with c2:
                 spec_final['Cor_Qtd'] = spec_final['Qtd_Ocorrencias'].apply(lambda x: '#27AE60' if x <= META_FREQ_QTD or not USAR_META_FREQ else '#E74C3C')
                 fig = go.Figure(go.Bar(x=spec_final['Equipe'], y=spec_final['Qtd_Ocorrencias'], marker_color=spec_final['Cor_Qtd'], text=spec_final['Qtd_Ocorrencias'], textposition='auto'))
                 if USAR_META_FREQ: 
-                    fig.add_hline(y=META_FREQ_QTD, line_dash="dash", 
-                                  annotation_text=f"Meta: {META_FREQ_QTD}", 
-                                  annotation_position="top right",
-                                  annotation_font_color="black")
+                    fig.add_hline(y=META_FREQ_QTD, line_dash="dash", annotation_text=f"Meta: {META_FREQ_QTD}", annotation_position="top right", annotation_font_color="black")
                 fig.update_layout(title="Quantidade de Ocorrências", template=TEMPLATE_GRAFICO)
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -519,4 +511,4 @@ if file_prod and file_ret:
         st.download_button("📥 Baixar Excel", data=convert_df_to_excel(df_tabela_final), file_name="relatorio_consolidado.xlsx")
 
 else:
-    st.info("Aguardando upload dos arquivos (Formatos aceitos: .xlsx, .csv). O nome do arquivo não importa, o sistema lerá pelas posições configuradas.")
+    st.info("Aguardando upload dos arquivos (Formatos aceitos: .xlsx, .csv). O sistema fará a leitura posicional automática configurada.")
